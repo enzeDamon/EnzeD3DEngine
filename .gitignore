@@ -19,3 +19,4 @@
 
 *.vcxproj.user
 *.opendb
+**/x64
