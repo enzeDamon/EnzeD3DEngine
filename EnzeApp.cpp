@@ -12,7 +12,7 @@
 #include "stdafx.h"
 #include "EnzeApp.h"
 
-D3D12HelloTriangle::D3D12HelloTriangle(UINT width, UINT height, std::wstring name) :
+EnzeApp::EnzeApp(UINT width, UINT height, std::wstring name) :
     DXSample(width, height, name),
     m_frameIndex(0),
     m_viewport(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)),
@@ -21,14 +21,14 @@ D3D12HelloTriangle::D3D12HelloTriangle(UINT width, UINT height, std::wstring nam
 {
 }
 
-void D3D12HelloTriangle::OnInit()
+void EnzeApp::OnInit()
 {
     LoadPipeline();
     LoadAssets();
 }
 
 // Load the rendering pipeline dependencies.
-void D3D12HelloTriangle::LoadPipeline()
+void EnzeApp::LoadPipeline()
 {
     UINT dxgiFactoryFlags = 0;
 
@@ -135,7 +135,7 @@ void D3D12HelloTriangle::LoadPipeline()
 }
 
 // Load the sample assets.
-void D3D12HelloTriangle::LoadAssets()
+void EnzeApp::LoadAssets()
 {
     // Create an empty root signature.
     {
@@ -252,12 +252,12 @@ void D3D12HelloTriangle::LoadAssets()
 }
 
 // Update frame-based values.
-void D3D12HelloTriangle::OnUpdate()
+void EnzeApp::OnUpdate()
 {
 }
 
 // Render the scene.
-void D3D12HelloTriangle::OnRender()
+void EnzeApp::OnRender()
 {
     // Record all the commands we need to render the scene into the command list.
     PopulateCommandList();
@@ -272,7 +272,7 @@ void D3D12HelloTriangle::OnRender()
     WaitForPreviousFrame();
 }
 
-void D3D12HelloTriangle::OnDestroy()
+void EnzeApp::OnDestroy()
 {
     // Ensure that the GPU is no longer referencing resources that are about to be
     // cleaned up by the destructor.
@@ -281,7 +281,7 @@ void D3D12HelloTriangle::OnDestroy()
     CloseHandle(m_fenceEvent);
 }
 
-void D3D12HelloTriangle::PopulateCommandList()
+void EnzeApp::PopulateCommandList()
 {
     // Command list allocators can only be reset when the associated 
     // command lists have finished execution on the GPU; apps should use 
@@ -317,7 +317,7 @@ void D3D12HelloTriangle::PopulateCommandList()
     ThrowIfFailed(m_commandList->Close());
 }
 
-void D3D12HelloTriangle::WaitForPreviousFrame()
+void EnzeApp::WaitForPreviousFrame()
 {
     // WAITING FOR THE FRAME TO COMPLETE BEFORE CONTINUING IS NOT BEST PRACTICE.
     // This is code implemented as such for simplicity. The D3D12HelloFrameBuffering
