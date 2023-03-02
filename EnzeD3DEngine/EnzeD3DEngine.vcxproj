@@ -131,19 +131,30 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="..\d3dx12.h" />
-    <ClInclude Include="..\DXSample.h" />
-    <ClInclude Include="..\DXSampleHelper.h" />
-    <ClInclude Include="..\EnzeApp.h" />
-    <ClInclude Include="..\stdafx.h" />
-    <ClInclude Include="..\Win32Application.h" />
+    <ClInclude Include="d3dx12.h" />
+    <ClInclude Include="DXSample.h" />
+    <ClInclude Include="DXSampleHelper.h" />
+    <ClInclude Include="EnzeApp.h" />
+    <ClInclude Include="MathHelper.h" />
+    <ClInclude Include="MyTimer.h" />
+    <ClInclude Include="stdafx.h" />
+    <ClInclude Include="UploadBuffer.h" />
+    <ClInclude Include="Win32Application.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\DXSample.cpp" />
-    <ClCompile Include="..\EnzeApp.cpp" />
-    <ClCompile Include="..\Main.cpp" />
-    <ClCompile Include="..\stdafx.cpp" />
-    <ClCompile Include="..\Win32Application.cpp" />
+    <ClCompile Include="DXSample.cpp" />
+    <ClCompile Include="EnzeApp.cpp" />
+    <ClCompile Include="Main.cpp" />
+    <ClCompile Include="MathHelper.cpp" />
+    <ClCompile Include="MyTimer.cpp" />
+    <ClCompile Include="stdafx.cpp" />
+    <ClCompile Include="Win32Application.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="..\x64\Debug\shaders.hlsl">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </FxCompile>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
