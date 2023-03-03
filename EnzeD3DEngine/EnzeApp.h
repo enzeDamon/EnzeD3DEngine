@@ -62,12 +62,14 @@ private:
     ComPtr<ID3D12GraphicsCommandList> m_commandList;
     UINT m_rtvDescriptorSize;
     UINT m_depthStencilDescriptorSize;
-
+    UINT m_cbvDescriptorSize;
+    DXGI_FORMAT mDepthStencilFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
     // App resources.
     ComPtr<ID3D12Resource> m_vertexBuffer;
     D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
     ComPtr<ID3D12Resource> m_indexBuffer;
     D3D12_INDEX_BUFFER_VIEW m_indexBufferView;
+    std::unique_ptr<MeshGeometry> mBoxGeo = nullptr;
     // get the upload pointer ready
     std::unique_ptr<UploadBuffer<ObjectConstants>> m_objectCB = nullptr;
     std::vector<D3D12_INPUT_ELEMENT_DESC> m_inputElementDescs;
@@ -83,7 +85,7 @@ private:
 
     void LoadPipeline();
     void BuildRootSignature();
-    void CreateSwapChainAndQueue();
+    void CreateSwapChainAndCommandThing();
     void CreateDescHeaps();
     void CreateRtvResources();
     void CreateDepthResources();
@@ -95,6 +97,7 @@ private:
     void CompileShader();
     void BuildPSO();
     void CreateCommandList();
+    void BuildBoxGeometry();
     
 
     

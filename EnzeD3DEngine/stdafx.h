@@ -28,5 +28,8 @@
 #include "d3dx12.h"
 
 #include <string>
+#include <array>
+#include <DirectXColors.h>
+#include <unordered_map>
 #include <wrl.h>
 #include <shellapi.h>
