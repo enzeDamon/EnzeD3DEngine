@@ -33,8 +33,14 @@ public:
     virtual void OnUpdate();
     virtual void OnRender();
     virtual void OnDestroy();
-
+    virtual void OnMouseDown(WPARAM btnState, int x, int y);
+    virtual void OnMouseUp(WPARAM btnState, int x, int y);
+    virtual void OnMouseMove(WPARAM btnState, int x, int y);
 private:
+    POINT mLastMousePos;
+    float mTheta = 1.5f*XM_PI;
+    float mPhi = XM_PIDIV4;
+    float mRadius = 5.0f;
     static const UINT FrameCount = 2;
     struct Vertex {
         XMFLOAT3 pos;
