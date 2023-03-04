@@ -38,9 +38,13 @@ public:
     virtual void OnMouseMove(WPARAM btnState, int x, int y);
 private:
     POINT mLastMousePos;
+    XMFLOAT4X4 mWorld = MathHelper::Identity4X4();
+    XMFLOAT4X4 mView = MathHelper::Identity4X4();
+    XMFLOAT4X4 mProj = MathHelper::Identity4X4();
     float mTheta = 1.5f*XM_PI;
     float mPhi = XM_PIDIV4;
     float mRadius = 5.0f;
+    
     static const UINT FrameCount = 2;
     struct Vertex {
         XMFLOAT3 pos;
@@ -48,7 +52,7 @@ private:
     };
 
     struct ObjectConstants{
-        XMFLOAT4X4 WorldViewProject = MathHelper::Indentity4X4();
+        XMFLOAT4X4 WorldViewProject = MathHelper::Identity4X4();
     };
 
     // Pipeline objects.
