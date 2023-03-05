@@ -323,8 +323,9 @@ void EnzeApp::OnUpdate()
     XMStoreFloat4x4(&mView, view);
 
     XMMATRIX world = XMLoadFloat4x4(&mWorld);
+    XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f * XM_PI, (float)m_width/(float)m_height, 1.0f, 1000.0f);
     XMMATRIX proj = XMLoadFloat4x4(&mProj);
-    XMMATRIX worldViewProj = world*view*proj;
+    XMMATRIX worldViewProj = world*view*P;
 
 	// Update the constant buffer with the latest worldViewProj matrix.
 	ObjectConstants objConstants;

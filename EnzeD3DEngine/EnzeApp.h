@@ -53,6 +53,7 @@ private:
 
     struct ObjectConstants{
         XMFLOAT4X4 WorldViewProject = MathHelper::Identity4X4();
+        
     };
 
     // Pipeline objects.
