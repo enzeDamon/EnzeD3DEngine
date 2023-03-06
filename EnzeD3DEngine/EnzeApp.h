@@ -37,13 +37,13 @@ public:
     virtual void OnMouseUp(WPARAM btnState, int x, int y);
     virtual void OnMouseMove(WPARAM btnState, int x, int y);
 private:
-    POINT mLastMousePos;
-    XMFLOAT4X4 mWorld = MathHelper::Identity4X4();
-    XMFLOAT4X4 mView = MathHelper::Identity4X4();
-    XMFLOAT4X4 mProj = MathHelper::Identity4X4();
-    float mTheta = 1.5f*XM_PI;
-    float mPhi = XM_PIDIV4;
-    float mRadius = 5.0f;
+    POINT m_LastMousePos;
+    XMFLOAT4X4 m_World = MathHelper::Identity4X4();
+    XMFLOAT4X4 m_View = MathHelper::Identity4X4();
+    XMFLOAT4X4 m_Proj = MathHelper::Identity4X4();
+    float m_Theta = 1.5f * XM_PI;
+    float m_Phi = XM_PIDIV4;
+    float m_Radius = 5.0f;
     
     static const UINT FrameCount = 2;
     struct Vertex {
@@ -51,9 +51,24 @@ private:
         XMFLOAT4 col;
     };
 
-    struct ObjectConstants{
-        XMFLOAT4X4 WorldViewProject = MathHelper::Identity4X4();
+    // each object has different world matrix
+    struct ObjectConstants {
         
+        XMFLOAT4X4 World = MathHelper::Identity4X4();
+        
+    };
+
+    struct PassConstants {
+        XMFLOAT4X4 ViewMatrix = MathHelper::Identity4X4();
+        XMFLOAT4X4 InvView = MathHelper::Identity4X4();
+        XMFLOAT4X4 ProjMatrix = MathHelper::Identity4X4();
+        XMFLOAT4X4 InvProj = MathHelper::Identity4X4();
+        XMFLOAT4X4 ViewProj = MathHelper::Identity4X4();
+        XMFLOAT4X4 InvViewProj = MathHelper::Identity4X4();
+        XMFLOAT3 EyePosW = {0.f, 0.f, 0.f};
+        float NearZ = 0.f;
+        float FarZ = 0.f;
+        float Time = 0.f; 
     };
 
     // Pipeline objects.
@@ -83,6 +98,7 @@ private:
     std::unique_ptr<MeshGeometry> mBoxGeo = nullptr;
     // get the upload pointer ready
     std::unique_ptr<UploadBuffer<ObjectConstants>> m_objectCB = nullptr;
+    std::unique_ptr<UploadBuffer<PassConstants>> m_passCB = nullptr;
     std::vector<D3D12_INPUT_ELEMENT_DESC> m_inputElementDescs;
     ComPtr<ID3DBlob> m_vertexShader;
     ComPtr<ID3DBlob> m_pixelShader;
@@ -94,7 +110,6 @@ private:
     ComPtr<ID3D12Fence> m_fence;
     UINT64 m_fenceValue;
 
-    void LoadPipeline();
     void BuildRootSignature();
     void CreateSwapChainAndCommandThing();
     void CreateDescHeaps();
@@ -109,8 +124,7 @@ private:
     void BuildPSO();
     void CreateCommandList();
     void BuildBoxGeometry();
-    
-
-    
+    void UpdateObjectConstants();
+    void UpdateMainPass(); 
     
 };

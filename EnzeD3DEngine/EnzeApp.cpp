@@ -24,12 +24,6 @@ EnzeApp::EnzeApp(UINT width, UINT height, std::wstring name) :
 
 void EnzeApp::OnInit()
 {
-    LoadPipeline();
-}
-
-// Load the rendering pipeline dependencies.
-void EnzeApp::LoadPipeline()
-{
     CreateSwapChainAndCommandThing();
 
     // Create descriptor heaps.
@@ -168,13 +162,7 @@ void EnzeApp::CreateDescHeaps()
     depthStencilHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     ThrowIfFailed(m_device->CreateDescriptorHeap(&depthStencilHeapDesc, IID_PPV_ARGS(&m_depthStencilHeap)));
     m_depthStencilDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
-    // Describe the constant buffer heap
-    D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc = {};
-    cbvHeapDesc.NumDescriptors = 1;
-    cbvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    cbvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    ThrowIfFailed(m_device->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&m_cbvHeap)));
-    m_cbvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    // 一旦调整到根常量就不需要cbv heap了
 }
 
 
@@ -232,22 +220,7 @@ void EnzeApp::CreateDepthResources()
 void EnzeApp::CreateConstantBuffer()
 {
     m_objectCB = std::make_unique<UploadBuffer<ObjectConstants>>(m_device.Get(), 1, true);
-    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-
-    //因为这段是已经映射好了，所以直接拿GPUVirtualAddress
-	D3D12_GPU_VIRTUAL_ADDRESS cbAddress = m_objectCB->Resource()->GetGPUVirtualAddress();
-    // Offset to the ith object constant buffer in the buffer.
-    int boxCBufIndex = 0;
-	cbAddress += boxCBufIndex*objCBByteSize;
-
-    // 创建一个constantbuffer view
-	D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc;
-	cbvDesc.BufferLocation = cbAddress;
-	cbvDesc.SizeInBytes = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-
-	m_device->CreateConstantBufferView(
-		&cbvDesc,
-		m_cbvHeap->GetCPUDescriptorHandleForHeapStart());
+    m_passCB = std::make_unique<UploadBuffer<PassConstants>>(m_device.Get(), 1, true);
     
 }
 
@@ -274,35 +247,35 @@ void EnzeApp::BuildPSO()
 
 void EnzeApp::BuildRootSignature()
 {
-    CD3DX12_ROOT_PARAMETER slotRootParameter[1];
+    // 用根常量代替根表。一会直接用resource的gpuaddress去更新它
+    // 一个是给pass的，另外一个是给object的
+    // Root parameter can be a table, root descriptor or root constants.
+    CD3DX12_ROOT_PARAMETER slotRootParameter[2];
 
-	// Create a single descriptor table of CBVs.
-	CD3DX12_DESCRIPTOR_RANGE cbvTable;
-    // 第三个参数决定了到底应该绑在哪个寄存器
-	cbvTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0);
-	slotRootParameter[0].InitAsDescriptorTable(1, &cbvTable);
+    // Create root CBV.
+    slotRootParameter[0].InitAsConstantBufferView(0);
+    slotRootParameter[1].InitAsConstantBufferView(1);
 
-	// A root signature is an array of root parameters.
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(1, slotRootParameter, 0, nullptr, 
-		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+    // A root signature is an array of root parameters.
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(2, slotRootParameter, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
-	// create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
-	ComPtr<ID3DBlob> serializedRootSig = nullptr;
-	ComPtr<ID3DBlob> errorBlob = nullptr;
-	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
-		serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+    // create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
+    ComPtr<ID3DBlob> serializedRootSig = nullptr;
+    ComPtr<ID3DBlob> errorBlob = nullptr;
+    HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
 
-	if(errorBlob != nullptr)
-	{
-		::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-	}
-	ThrowIfFailed(hr);
+    if(errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
 
-	ThrowIfFailed(m_device->CreateRootSignature(
+    ThrowIfFailed(m_device->CreateRootSignature(
 		0,
-		serializedRootSig->GetBufferPointer(),
-		serializedRootSig->GetBufferSize(),
-		IID_PPV_ARGS(&m_rootSignature)));
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(m_rootSignature.GetAddressOf())));
 }
 
 
@@ -310,9 +283,9 @@ void EnzeApp::BuildRootSignature()
 void EnzeApp::OnUpdate()
 {
     // Convert Spherical to Cartesian coordinates.
-    float x = mRadius*sinf(mPhi)*cosf(mTheta);
-    float z = mRadius*sinf(mPhi)*sinf(mTheta);
-    float y = mRadius*cosf(mPhi);
+    float x = m_Radius*sinf(m_Phi)*cosf(m_Theta);
+    float z = m_Radius*sinf(m_Phi)*sinf(m_Theta);
+    float y = m_Radius*cosf(m_Phi);
 
     // Build the view matrix.
     XMVECTOR pos = XMVectorSet(x, y, z, 1.0f);
@@ -320,16 +293,16 @@ void EnzeApp::OnUpdate()
     XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 
     XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
-    XMStoreFloat4x4(&mView, view);
+    XMStoreFloat4x4(&m_View, view);
 
-    XMMATRIX world = XMLoadFloat4x4(&mWorld);
-    XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f * XM_PI, (float)m_width/(float)m_height, 1.0f, 1000.0f);
-    XMMATRIX proj = XMLoadFloat4x4(&mProj);
+    XMMATRIX world = XMLoadFloat4x4(&m_World);
+    XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f * XM_PI, (float)m_width/(float)m_height, 1.f, 1000.0f);
+    XMMATRIX proj = XMLoadFloat4x4(&m_Proj);
     XMMATRIX worldViewProj = world*view*P;
 
 	// Update the constant buffer with the latest worldViewProj matrix.
 	ObjectConstants objConstants;
-    XMStoreFloat4x4(&objConstants.WorldViewProject, XMMatrixTranspose(worldViewProj));
+    XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(worldViewProj));
     m_objectCB->CopyData(0, objConstants);
 }
 
@@ -387,15 +360,10 @@ void EnzeApp::PopulateCommandList()
 	ID3D12DescriptorHeap* descriptorHeaps[] = { m_cbvHeap.Get() };
 	m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
-    m_commandList->SetGraphicsRootDescriptorTable(0, m_cbvHeap->GetGPUDescriptorHandleForHeapStart());
-    // D3D12_VERTEX_BUFFER_VIEW vertex_buffer;
-    // vertex_buffer.BufferLocation = mBoxGeo->VertexBufferGPU->GetGPUVirtualAddress();
-    // vertex_buffer.SizeInBytes = mBoxGeo->VertexBufferByteSize;
-    // vertex_buffer.StrideInBytes = mBoxGeo->VertexByteStride;
-    // D3D12_INDEX_BUFFER_VIEW index_buffer;
-    // index_buffer.BufferLocation = mBoxGeo->IndexBufferGPU->GetGPUVirtualAddress();
-    // index_buffer.Format = mBoxGeo->IndexFormat;
-    // index_buffer.SizeInBytes = mBoxGeo->IndexBufferByteSize;
+    // 把world matrix 先扔进去
+    m_commandList->SetGraphicsRootConstantBufferView(0, m_objectCB->Resource()->GetGPUVirtualAddress());
+    m_commandList->SetGraphicsRootConstantBufferView(1, m_passCB->Resource()->GetGPUVirtualAddress());
+    // m_commandList->SetGraphicsRootDescriptorTable(0, m_cbvHeap->GetGPUDescriptorHandleForHeapStart());
     m_commandList->IASetVertexBuffers(0, 1, &mBoxGeo->VertexBufferView());
 	m_commandList->IASetIndexBuffer(&mBoxGeo->IndexBufferView());
     m_commandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -523,8 +491,8 @@ void EnzeApp::BuildBoxGeometry()
 
 void EnzeApp::OnMouseDown(WPARAM btnState, int x, int y)
 {
-    mLastMousePos.x = x;
-    mLastMousePos.y = y;
+    m_LastMousePos.x = x;
+    m_LastMousePos.y = y;
 
     SetCapture(Win32Application::GetHwnd());
 }
@@ -539,29 +507,43 @@ void EnzeApp::OnMouseMove(WPARAM btnState, int x, int y)
     if((btnState & MK_LBUTTON) != 0)
     {
         // Make each pixel correspond to a quarter of a degree.
-        float dx = XMConvertToRadians(0.25f*static_cast<float>(x - mLastMousePos.x));
-        float dy = XMConvertToRadians(0.25f*static_cast<float>(y - mLastMousePos.y));
+        float dx = XMConvertToRadians(0.25f*static_cast<float>(x - m_LastMousePos.x));
+        float dy = XMConvertToRadians(0.25f*static_cast<float>(y - m_LastMousePos.y));
 
         // Update angles based on input to orbit camera around box.
-        mTheta += dx;
-        mPhi += dy;
+        m_Theta += dx;
+        m_Phi += dy;
 
         // Restrict the angle mPhi.
-        mPhi = MathHelper::Clamp(mPhi, 0.1f, DirectX::XM_PI - 0.1f);
+        m_Phi = MathHelper::Clamp(m_Phi, 0.1f, DirectX::XM_PI - 0.1f);
     }
     else if((btnState & MK_RBUTTON) != 0)
     {
         // Make each pixel correspond to 0.005 unit in the scene.
-        float dx = 0.005f*static_cast<float>(x - mLastMousePos.x);
-        float dy = 0.005f*static_cast<float>(y - mLastMousePos.y);
+        float dx = 0.005f*static_cast<float>(x - m_LastMousePos.x);
+        float dy = 0.005f*static_cast<float>(y - m_LastMousePos.y);
 
         // Update the camera radius based on input.
-        mRadius += dx - dy;
+        m_Radius += dx - dy;
 
         // Restrict the radius.
-        mRadius = MathHelper::Clamp(mRadius, 3.0f, 15.0f);
+        m_Radius = MathHelper::Clamp(m_Radius, 3.0f, 15.0f);
     }
 
-    mLastMousePos.x = x;
-    mLastMousePos.y = y;
+    m_LastMousePos.x = x;
+    m_LastMousePos.y = y;
+}
+
+void EnzeApp::UpdateObjectConstants() 
+{
+    XMMATRIX world = XMLoadFloat4x4(&m_World);
+    ObjectConstants objConstant;
+	XMStoreFloat4x4(&objConstant.World, XMMatrixTranspose(world));
+    m_objectCB->CopyData(0, objConstant);
+
+}
+
+void EnzeApp::UpdateMainPass()
+{
+
 }
