@@ -54,6 +54,36 @@ private:
         XMFLOAT4 col;
     };
 
+//  让 render 和 geometry进行分离。因为有些物体其实
+// 形状是一样的，可以通过更改其objectcb来进行更改
+struct RenderItem
+{
+	RenderItem() = default;
+
+    // World matrix of the shape that describes the object's local space
+    // relative to the world space, which defines the position, orientation,
+    // and scale of the object in the world.
+    XMFLOAT4X4 World = MathHelper::Identity4X4();
+
+	// Dirty flag indicating the object data has changed and we need to update the constant buffer.
+	// Because we have an object cbuffer for each FrameResource, we have to apply the
+	// update to each FrameResource.  Thus, when we modify obect data we should set 
+	// NumFramesDirty = gNumFrameResources so that each frame resource gets the update.
+
+	// Index into GPU constant buffer corresponding to the ObjectCB for this render item.
+	UINT ObjCBIndex = -1;
+
+	MeshGeometry* Geo = nullptr;
+
+    // Primitive topology.
+    D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+    // DrawIndexedInstanced parameters.
+    UINT IndexCount = 0;
+    UINT StartIndexLocation = 0;
+    int BaseVertexLocation = 0;
+};
+
     // each object has different world matrix
     struct ObjectConstants {
         
@@ -86,7 +116,6 @@ private:
     ComPtr<ID3D12RootSignature> m_rootSignature;
     ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
     ComPtr<ID3D12DescriptorHeap> m_depthStencilHeap;
-    ComPtr<ID3D12DescriptorHeap> m_cbvHeap;
     ComPtr<ID3D12PipelineState> m_pipelineState;
     ComPtr<ID3D12GraphicsCommandList> m_commandList;
     UINT m_rtvDescriptorSize;
@@ -94,11 +123,10 @@ private:
     UINT m_cbvDescriptorSize;
     DXGI_FORMAT mDepthStencilFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
     // App resources.
-    ComPtr<ID3D12Resource> m_vertexBuffer;
-    D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
-    ComPtr<ID3D12Resource> m_indexBuffer;
-    D3D12_INDEX_BUFFER_VIEW m_indexBufferView;
     std::unique_ptr<MeshGeometry> mBoxGeo = nullptr;
+    std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> m_Geometries;
+    std::vector<std::unique_ptr<RenderItem>> mAllRitems; 
+    std::vector<RenderItem *>mOpaqueRitems;
     // get the upload pointer ready
     std::unique_ptr<UploadBuffer<ObjectConstants>> m_objectCB = nullptr;
     std::unique_ptr<UploadBuffer<PassConstants>> m_passCB = nullptr;
@@ -126,10 +154,11 @@ private:
     void CompileShader();
     void BuildPSO();
     void CreateCommandList();
-    void BuildBoxGeometry();
     void UpdateObjectConstants();
     void UpdateMainPass(); 
     void UpdateCamera();
     void InitProjMatrix();
-    
+    void BuildCommonGeoMetry();
+    void BuildRenderItems();
+    void RenderGroupItems(ID3D12GraphicsCommandList* cmdList);
 };

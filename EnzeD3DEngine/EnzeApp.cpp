@@ -12,6 +12,7 @@
 #include "stdafx.h"
 #include "EnzeApp.h"
 #include <iostream>
+#include "GeometryGenerator.h"
 
 EnzeApp::EnzeApp(UINT width, UINT height, std::wstring name) :
     DXSample(width, height, name),
@@ -33,14 +34,16 @@ void EnzeApp::OnInit()
     ThrowIfFailed(m_commandList->Reset(m_commandAllocator.Get(), nullptr));
     CreateRtvResources();
     CreateDepthResources();
-    CreateConstantBuffer();
+
     BuildRootSignature();
     CompileShader();
     // Define the vertex input layout.
     DefineInputLayout();
     // Create the vertex buffer.
 
-    BuildBoxGeometry();
+    BuildCommonGeoMetry();
+    BuildRenderItems();
+    CreateConstantBuffer();
     // usually projection matrix is only revised once in one game
     InitProjMatrix();
     BuildPSO();
@@ -221,9 +224,15 @@ void EnzeApp::CreateDepthResources()
 
 void EnzeApp::CreateConstantBuffer()
 {
-    m_objectCB = std::make_unique<UploadBuffer<ObjectConstants>>(m_device.Get(), 1, true);
+    m_objectCB = std::make_unique<UploadBuffer<ObjectConstants>>(m_device.Get(), mAllRitems.size(), true);
     m_passCB = std::make_unique<UploadBuffer<PassConstants>>(m_device.Get(), 1, true);
     
+}
+
+void EnzeApp::InitProjMatrix()
+{
+    
+    XMStoreFloat4x4(&m_Proj, XMMatrixPerspectiveFovLH(0.25f * XM_PI, (float)m_width/(float)m_height, m_NearZ, m_FarZ));
 }
 
 void EnzeApp::BuildPSO()
@@ -280,6 +289,55 @@ void EnzeApp::BuildRootSignature()
         IID_PPV_ARGS(m_rootSignature.GetAddressOf())));
 }
 
+void EnzeApp::UpdateObjectConstants() 
+{
+    XMMATRIX world = XMLoadFloat4x4(&m_World);
+    ObjectConstants objConstant;
+	XMStoreFloat4x4(&objConstant.World, XMMatrixTranspose(world));
+    m_objectCB->CopyData(0, objConstant);
+
+}
+
+void EnzeApp::UpdateMainPass()
+{
+    PassConstants tempPassCB;
+    XMMATRIX view = XMLoadFloat4x4(&m_View);
+	XMMATRIX proj = XMLoadFloat4x4(&m_Proj);
+
+	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
+	XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
+    XMStoreFloat4x4(&tempPassCB.ViewMatrix, XMMatrixTranspose(view));
+	XMStoreFloat4x4(&tempPassCB.InvView, XMMatrixTranspose(invView));
+	XMStoreFloat4x4(&tempPassCB.ProjMatrix, XMMatrixTranspose(proj));
+	XMStoreFloat4x4(&tempPassCB.InvProj, XMMatrixTranspose(invProj));
+	XMStoreFloat4x4(&tempPassCB.ViewProj, XMMatrixTranspose(viewProj));
+	XMStoreFloat4x4(&tempPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+    tempPassCB.EyePosW = m_EyePos;
+    tempPassCB.NearZ = m_NearZ;
+    tempPassCB.FarZ = m_FarZ;
+    tempPassCB.Time = myTimer.Peek();
+    
+    m_passCB->CopyData(0, tempPassCB);
+
+}
+
+void EnzeApp::UpdateCamera()
+{
+	// Convert Spherical to Cartesian coordinates.
+	m_EyePos.x = m_Radius*sinf(m_Phi)*cosf(m_Theta);
+	m_EyePos.z = m_Radius*sinf(m_Phi)*sinf(m_Theta);
+	m_EyePos.y = m_Radius*cosf(m_Phi);
+
+	// Build the view matrix.
+	XMVECTOR pos = XMVectorSet(m_EyePos.x, m_EyePos.y, m_EyePos.z, 1.0f);
+	XMVECTOR target = XMVectorZero();
+	XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+	XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
+	XMStoreFloat4x4(&m_View, view);
+}
 
 // Update frame-based values.
 void EnzeApp::OnUpdate()
@@ -346,15 +404,8 @@ void EnzeApp::PopulateCommandList()
 
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
     // 把world matrix 先扔进去
-    m_commandList->SetGraphicsRootConstantBufferView(0, m_objectCB->Resource()->GetGPUVirtualAddress());
     m_commandList->SetGraphicsRootConstantBufferView(1, m_passCB->Resource()->GetGPUVirtualAddress());
-    // m_commandList->SetGraphicsRootDescriptorTable(0, m_cbvHeap->GetGPUDescriptorHandleForHeapStart());
-    m_commandList->IASetVertexBuffers(0, 1, &mBoxGeo->VertexBufferView());
-	m_commandList->IASetIndexBuffer(&mBoxGeo->IndexBufferView());
-    m_commandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    //m_commandList->DrawInstanced(3, 1, 0, 0);
-    m_commandList->DrawIndexedInstanced(
-	 	mBoxGeo->DrawArgs["box"].IndexCount, 1, 0, 0, 0);
+    RenderGroupItems(m_commandList.Get());
 
     // Indicate that the back buffer will now be used to present.
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
@@ -406,73 +457,180 @@ void EnzeApp::CompileShader()
     ThrowIfFailed(D3DCompileFromFile(GetAssetFullPath(L"shaders.hlsl").c_str(), nullptr, nullptr, "PSMain", "ps_5_1", compileFlags, 0, &m_pixelShader, nullptr));
 }
 
-void EnzeApp::BuildBoxGeometry()
+void EnzeApp::BuildCommonGeoMetry()
 {
+    GeometryGenerator geoGen;
+	GeometryGenerator::MeshData box = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 3);
+	GeometryGenerator::MeshData grid = geoGen.CreateGrid(20.0f, 30.0f, 60, 40);
+	GeometryGenerator::MeshData sphere = geoGen.CreateSphere(0.5f, 20, 20);
+	GeometryGenerator::MeshData cylinder = geoGen.CreateCylinder(0.5f, 0.3f, 3.0f, 20, 20);
 
-        mBoxGeo = std::make_unique<MeshGeometry>();
+	//
+	// We are concatenating all the geometry into one big vertex/index buffer.  So
+	// define the regions in the buffer each submesh covers.
+	//
 
-        // Define the geometry for a triangle.
-        Vertex triangleVertices[] =
-        {
-            { { 0.0f, 0.25f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-            { { 0.25f, -0.25f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-            { { -0.25f, -0.25f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }
-                // Vertex({ XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT4(Colors::White) }),
-		        // Vertex({ XMFLOAT3(-1.0f, +1.0f, -1.0f), XMFLOAT4(Colors::Black) }),
-	            // Vertex({ XMFLOAT3(+1.0f, +1.0f, -1.0f), XMFLOAT4(Colors::Red) })
-		        // Vertex({ XMFLOAT3(+1.0f, -1.0f, -1.0f), XMFLOAT4(Colors::Green) }),
-		        // Vertex({ XMFLOAT3(-1.0f, -1.0f, +1.0f), XMFLOAT4(Colors::Blue) }),
-		        // Vertex({ XMFLOAT3(-1.0f, +1.0f, +1.0f), XMFLOAT4(Colors::Yellow) }),
-		        // Vertex({ XMFLOAT3(+1.0f, +1.0f, +1.0f), XMFLOAT4(Colors::Cyan) }),
-		        // Vertex({ XMFLOAT3(+1.0f, -1.0f, +1.0f), XMFLOAT4(Colors::Magenta) })
-        };
+	// Cache the vertex offsets to each object in the concatenated vertex buffer.
+	UINT boxVertexOffset = 0;
+	UINT gridVertexOffset = (UINT)box.Vertices.size();
+	UINT sphereVertexOffset = gridVertexOffset + (UINT)grid.Vertices.size();
+	UINT cylinderVertexOffset = sphereVertexOffset + (UINT)sphere.Vertices.size();
 
-        const UINT vertexBufferSize = sizeof(triangleVertices);
-        d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), triangleVertices, vertexBufferSize,
-        mBoxGeo->VertexBufferUploader, mBoxGeo->VertexBufferGPU);
-        mBoxGeo->VertexBufferByteSize = vertexBufferSize;
-        mBoxGeo->VertexByteStride = sizeof(Vertex);
-        // Initialize the vertex buffer view.
-        
-        UINT16 indice[] = {
-           // front face
-		    0, 1, 2,
-		//     0, 2, 3,
+	// Cache the starting index for each object in the concatenated index buffer.
+	UINT boxIndexOffset = 0;
+	UINT gridIndexOffset = (UINT)box.Indices32.size();
+	UINT sphereIndexOffset = gridIndexOffset + (UINT)grid.Indices32.size();
+	UINT cylinderIndexOffset = sphereIndexOffset + (UINT)sphere.Indices32.size();
 
-		// // back face
-		//     4, 6, 5,
-		//     4, 7, 6,
+    // Define the SubmeshGeometry that cover different 
+    // regions of the vertex/index buffers.
 
-		// // left face
-		//     4, 5, 1,
-		//     4, 1, 0,
+	SubmeshGeometry boxSubmesh;
+	boxSubmesh.IndexCount = (UINT)box.Indices32.size();
+	boxSubmesh.StartIndexLocation = boxIndexOffset;
+	boxSubmesh.BaseVertexLocation = boxVertexOffset;
 
-		// // right face
-		//     3, 2, 6,
-		//     3, 6, 7,
+	SubmeshGeometry gridSubmesh;
+	gridSubmesh.IndexCount = (UINT)grid.Indices32.size();
+	gridSubmesh.StartIndexLocation = gridIndexOffset;
+	gridSubmesh.BaseVertexLocation = gridVertexOffset;
 
-		// // top face
-		//     1, 5, 6,
-		//     1, 6, 2,
+	SubmeshGeometry sphereSubmesh;
+	sphereSubmesh.IndexCount = (UINT)sphere.Indices32.size();
+	sphereSubmesh.StartIndexLocation = sphereIndexOffset;
+	sphereSubmesh.BaseVertexLocation = sphereVertexOffset;
 
-		// // bottom face
-		//     4, 0, 3,
-		//     4, 3, 7
-        };
-        const UINT indiceBufferSize = sizeof(indice);
-        d3dUtil::CreateDefaultBuffer(m_device.Get(), m_commandList.Get(), indice, indiceBufferSize,
-        mBoxGeo->IndexBufferUploader, mBoxGeo->IndexBufferGPU);
-        mBoxGeo->IndexBufferByteSize = indiceBufferSize;
-        
+	SubmeshGeometry cylinderSubmesh;
+	cylinderSubmesh.IndexCount = (UINT)cylinder.Indices32.size();
+	cylinderSubmesh.StartIndexLocation = cylinderIndexOffset;
+	cylinderSubmesh.BaseVertexLocation = cylinderVertexOffset;
 
-        SubmeshGeometry submesh;
-	    submesh.IndexCount = sizeof(indice)/sizeof(std::uint16_t);
-	    submesh.StartIndexLocation = 0;
-	    submesh.BaseVertexLocation = 0;
+	//
+	// Extract the vertex elements we are interested in and pack the
+	// vertices of all the meshes into one vertex buffer.
+	//
 
-	    mBoxGeo->DrawArgs["box"] = submesh;
+	auto totalVertexCount =
+		box.Vertices.size() +
+		grid.Vertices.size() +
+		sphere.Vertices.size() +
+		cylinder.Vertices.size();
 
+	std::vector<Vertex> vertices(totalVertexCount);
+
+	UINT k = 0;
+	for(size_t i = 0; i < box.Vertices.size(); ++i, ++k)
+	{
+		vertices[k].pos = box.Vertices[i].Position;
+        vertices[k].col = XMFLOAT4(DirectX::Colors::DarkGreen);
+	}
+
+	for(size_t i = 0; i < grid.Vertices.size(); ++i, ++k)
+	{
+		vertices[k].pos = grid.Vertices[i].Position;
+        vertices[k].col = XMFLOAT4(DirectX::Colors::ForestGreen);
+	}
+
+	for(size_t i = 0; i < sphere.Vertices.size(); ++i, ++k)
+	{
+		vertices[k].pos = sphere.Vertices[i].Position;
+        vertices[k].col = XMFLOAT4(DirectX::Colors::Crimson);
+	}
+
+	for(size_t i = 0; i < cylinder.Vertices.size(); ++i, ++k)
+	{
+		vertices[k].pos = cylinder.Vertices[i].Position;
+		vertices[k].col = XMFLOAT4(DirectX::Colors::SteelBlue);
+	}
+
+	std::vector<std::uint16_t> indices;
+	indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
+	indices.insert(indices.end(), std::begin(grid.GetIndices16()), std::end(grid.GetIndices16()));
+	indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
+	indices.insert(indices.end(), std::begin(cylinder.GetIndices16()), std::end(cylinder.GetIndices16()));
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size()  * sizeof(std::uint16_t);
+
+	auto geo = std::make_unique<MeshGeometry>();
+	geo->Name = "shapeGeo";
+
+	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+	d3dUtil::CreateDefaultBuffer(m_device.Get(),
+	m_commandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader, geo->VertexBufferGPU);
+
+    d3dUtil::CreateDefaultBuffer(m_device.Get(),
+	m_commandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader, 	geo->IndexBufferGPU);
+
+	geo->VertexByteStride = sizeof(Vertex);
+	geo->VertexBufferByteSize = vbByteSize;
+	geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+	geo->IndexBufferByteSize = ibByteSize;
+
+	geo->DrawArgs["box"] = boxSubmesh;
+	geo->DrawArgs["grid"] = gridSubmesh;
+	geo->DrawArgs["sphere"] = sphereSubmesh;
+	geo->DrawArgs["cylinder"] = cylinderSubmesh;
+
+	m_Geometries[geo->Name] = std::move(geo);
 }
+
+void EnzeApp::BuildRenderItems()
+{
+    auto boxRitem = std::make_unique<RenderItem>();
+    XMStoreFloat4x4(&boxRitem->World, XMMatrixScaling(2.0f, 2.0f, 2.0f)*XMMatrixTranslation(0.0f, 0.5f, 0.0f));
+    boxRitem->ObjCBIndex = 0;
+	boxRitem->Geo = m_Geometries["shapeGeo"].get();
+	boxRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
+	boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
+	boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(boxRitem));
+
+    auto gridRitem = std::make_unique<RenderItem>();
+    gridRitem->World = MathHelper::Identity4X4();
+	gridRitem->ObjCBIndex = 1;
+	gridRitem->Geo = m_Geometries["shapeGeo"].get();
+	gridRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    gridRitem->IndexCount = gridRitem->Geo->DrawArgs["grid"].IndexCount;
+    gridRitem->StartIndexLocation = gridRitem->Geo->DrawArgs["grid"].StartIndexLocation;
+    gridRitem->BaseVertexLocation = gridRitem->Geo->DrawArgs["grid"].BaseVertexLocation;
+	mAllRitems.push_back(std::move(gridRitem));
+
+    auto boxRitem1 = std::make_unique<RenderItem>();
+    XMStoreFloat4x4(&boxRitem1->World, XMMatrixScaling(2.0f, 2.0f, 2.0f)*XMMatrixTranslation(0.0f, 0.5f, 3.f));
+    boxRitem1->ObjCBIndex = 2;
+	boxRitem1->Geo = m_Geometries["shapeGeo"].get();
+	boxRitem1->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	boxRitem1->IndexCount = boxRitem1->Geo->DrawArgs["box"].IndexCount;
+	boxRitem1->StartIndexLocation = boxRitem1->Geo->DrawArgs["box"].StartIndexLocation;
+	boxRitem1->BaseVertexLocation = boxRitem1->Geo->DrawArgs["box"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(boxRitem1));
+    for(auto &e : mAllRitems)
+        mOpaqueRitems.push_back(e.get());
+}   
+
+void EnzeApp::RenderGroupItems(ID3D12GraphicsCommandList* cmdList) 
+{
+    UINT objCBBytesSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    for(size_t i = 0; i < mOpaqueRitems.size(); i++) {
+        auto ri = mOpaqueRitems[i];
+        cmdList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
+        cmdList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
+        
+        cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = m_objectCB->Resource()->GetGPUVirtualAddress();
+        objCBAddress += ri->ObjCBIndex * objCBBytesSize;
+        cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+        cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+    }
+}
+
 
 void EnzeApp::OnMouseDown(WPARAM btnState, int x, int y)
 {
@@ -519,58 +677,6 @@ void EnzeApp::OnMouseMove(WPARAM btnState, int x, int y)
     m_LastMousePos.y = y;
 }
 
-void EnzeApp::UpdateObjectConstants() 
-{
-    XMMATRIX world = XMLoadFloat4x4(&m_World);
-    ObjectConstants objConstant;
-	XMStoreFloat4x4(&objConstant.World, XMMatrixTranspose(world));
-    m_objectCB->CopyData(0, objConstant);
 
-}
 
-void EnzeApp::UpdateMainPass()
-{
-    PassConstants tempPassCB;
-    XMMATRIX view = XMLoadFloat4x4(&m_View);
-	XMMATRIX proj = XMLoadFloat4x4(&m_Proj);
 
-	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
-	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
-	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
-	XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
-    XMStoreFloat4x4(&tempPassCB.ViewMatrix, XMMatrixTranspose(view));
-	XMStoreFloat4x4(&tempPassCB.InvView, XMMatrixTranspose(invView));
-	XMStoreFloat4x4(&tempPassCB.ProjMatrix, XMMatrixTranspose(proj));
-	XMStoreFloat4x4(&tempPassCB.InvProj, XMMatrixTranspose(invProj));
-	XMStoreFloat4x4(&tempPassCB.ViewProj, XMMatrixTranspose(viewProj));
-	XMStoreFloat4x4(&tempPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
-    tempPassCB.EyePosW = m_EyePos;
-    tempPassCB.NearZ = m_NearZ;
-    tempPassCB.FarZ = m_FarZ;
-    tempPassCB.Time = myTimer.Peek();
-    
-    m_passCB->CopyData(0, tempPassCB);
-
-}
-
-void EnzeApp::UpdateCamera()
-{
-	// Convert Spherical to Cartesian coordinates.
-	m_EyePos.x = m_Radius*sinf(m_Phi)*cosf(m_Theta);
-	m_EyePos.z = m_Radius*sinf(m_Phi)*sinf(m_Theta);
-	m_EyePos.y = m_Radius*cosf(m_Phi);
-
-	// Build the view matrix.
-	XMVECTOR pos = XMVectorSet(m_EyePos.x, m_EyePos.y, m_EyePos.z, 1.0f);
-	XMVECTOR target = XMVectorZero();
-	XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-
-	XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
-	XMStoreFloat4x4(&m_View, view);
-}
-
-void EnzeApp::InitProjMatrix()
-{
-    
-    XMStoreFloat4x4(&m_Proj, XMMatrixPerspectiveFovLH(0.25f * XM_PI, (float)m_width/(float)m_height, m_NearZ, m_FarZ));
-}
