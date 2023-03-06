@@ -35,11 +35,13 @@ struct PSInput
     
 };
 
+// 由于HLSL 是列向量乘法，所以vector都是在前的。同时也是为什么要先乘世界矩阵
+// 再处理投影矩阵的原因
 PSInput VSMain(float3 position : POSITION, float4 color : COLOR)
 {
     PSInput result;
-    float4 tempPosition = mul(float4(position, 1.0f), ViewProj);
-    result.position = mul(tempPosition, gWorldViewProj);
+    float4 tempPosition = mul(float4(position, 1.0f), gWorldViewProj);
+    result.position = mul(tempPosition, ViewProj);
     result.color = color;
 
     return result;
