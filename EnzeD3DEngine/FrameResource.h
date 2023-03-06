@@ -20,20 +20,23 @@ struct PassConstants {
     float NearZ = 0.f;
     float FarZ = 0.f;
     float Time = 0.f; 
+    DirectX::XMFLOAT4 AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
+    Light Lights[MaxLights];
 };
 struct Vertex {
-    DirectX::XMFLOAT3 pos;
-    DirectX::XMFLOAT4 col;
+    DirectX::XMFLOAT3 Pos;
+    DirectX::XMFLOAT3 Normal;
 };
 class FrameResource
 {
     public:
-        FrameResource(ID3D12Device* device, UINT passCount, UINT objectCount);
+        FrameResource(ID3D12Device* device, UINT passCount, UINT objectCount, UINT materialCount);
         FrameResource(const FrameResource& rhs) = delete;
         FrameResource& operator=(const FrameResource& rhs) = delete;
         ~FrameResource();
         Microsoft::WRL::ComPtr<ID3D12CommandAllocator> CmdListAlloc;
         std::unique_ptr<UploadBuffer<PassConstants>> PassCB = nullptr;
         std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
+        std::unique_ptr<UploadBuffer<MaterialConstants>> MaterialCB = nullptr;
         UINT64 Fence = 0;
 };

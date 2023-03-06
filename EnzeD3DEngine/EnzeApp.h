@@ -25,7 +25,7 @@ using namespace DirectX;
 using Microsoft::WRL::ComPtr;
 
 // 3 frames  cpu to calculate
-const int gNumFrameResources = 3;
+
 
 struct RenderItem
 {
@@ -46,7 +46,7 @@ struct RenderItem
 
     int NumFramesDirty = gNumFrameResources;
 	MeshGeometry* Geo = nullptr;
-
+    Material* Mat = nullptr;
     // Primitive topology.
     D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
@@ -123,6 +123,7 @@ private:
     // frames to use
     std::vector<std::unique_ptr<FrameResource>> mFrameResources;
     FrameResource* mCurrFrameResource = nullptr;
+    std::unordered_map<std::string, std::unique_ptr<Material>> m_Materials;
     int mCurrFrameResourceIndex = 0;
 
     void BuildRootSignature();
@@ -138,10 +139,12 @@ private:
     void CreateCommandList();
     void UpdateObjectConstants();
     void UpdateMainPass(); 
+    void UpdateMaterialsCB();
     void UpdateCamera();
     void InitProjMatrix();
     void BuildCommonGeoMetry();
     void BuildRenderItems();
     void BuildFrameResources();
+    void BuildMaterials();
     void RenderGroupItems();
 };

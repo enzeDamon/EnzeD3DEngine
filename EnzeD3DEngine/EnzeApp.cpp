@@ -43,6 +43,7 @@ void EnzeApp::OnInit()
     // Create the vertex buffer.
 
     BuildCommonGeoMetry();
+    BuildMaterials();
     BuildRenderItems();
     BuildFrameResources();
     // usually projection matrix is only revised once in one game
@@ -235,7 +236,7 @@ void EnzeApp::BuildFrameResources()
     for(int i = 0; i < gNumFrameResources; ++i)
         {
             mFrameResources.push_back(std::make_unique<FrameResource>(m_device.Get(),
-                1, (UINT)mAllRitems.size()));
+                1, (UINT)mAllRitems.size(), (UINT)m_Materials.size()));
         }
 }
 
@@ -266,14 +267,14 @@ void EnzeApp::BuildRootSignature()
     // 用根常量代替根表。一会直接用resource的gpuaddress去更新它
     // 一个是给pass的，另外一个是给object的
     // Root parameter can be a table, root descriptor or root constants.
-    CD3DX12_ROOT_PARAMETER slotRootParameter[2];
+    CD3DX12_ROOT_PARAMETER slotRootParameter[3];
 
     // Create root CBV.
     slotRootParameter[0].InitAsConstantBufferView(0);
     slotRootParameter[1].InitAsConstantBufferView(1);
-
+    slotRootParameter[2].InitAsConstantBufferView(2);
     // A root signature is an array of root parameters.
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(2, slotRootParameter, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(3, slotRootParameter, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     // create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
     ComPtr<ID3DBlob> serializedRootSig = nullptr;
@@ -343,6 +344,31 @@ void EnzeApp::OnDestroy()
     CloseHandle(m_fenceEvent);
 }
 
+
+void EnzeApp::UpdateMaterialsCB()
+{
+    auto currMaterialCB = mCurrFrameResource->MaterialCB.get();
+    for (auto &e: m_Materials)
+    {
+        Material *mat = e.second.get();
+        if(mat->NumFramesDirty > 0)
+        {
+            XMMATRIX matTransform = XMLoadFloat4x4(&mat->MatTransform);
+
+			MaterialConstants matConstants;
+			matConstants.DiffuseAlbedo = mat->DiffuseAlbedo;
+			matConstants.FresnelR0 = mat->FresnelR0;
+			matConstants.Roughness = mat->Roughness;
+			XMStoreFloat4x4(&matConstants.MatTransform, XMMatrixTranspose(matTransform));
+			currMaterialCB->CopyData(mat->MatCBIndex, matConstants);
+
+			// Next FrameResource need to be updated too.
+			mat->NumFramesDirty--;
+        }
+    }
+
+}
+
 void EnzeApp::UpdateObjectConstants() 
 {
     auto currObjectCB = mCurrFrameResource->ObjectCB.get();
@@ -405,9 +431,9 @@ void EnzeApp::UpdateCamera()
 void EnzeApp::RenderGroupItems() 
 {
     UINT objCBBytesSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-    
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
     auto objectCB = mCurrFrameResource->ObjectCB->Resource();
-
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
     for(size_t i = 0; i < mOpaqueRitems.size(); i++) {
         auto ri = mOpaqueRitems[i];
         m_commandList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
@@ -417,6 +443,9 @@ void EnzeApp::RenderGroupItems()
         D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress();
         objCBAddress += ri->ObjCBIndex * objCBBytesSize;
         m_commandList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+        D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB ->GetGPUVirtualAddress();
+        matCBAddress += ri->Mat->MatCBIndex * matCBByteSize;
+        m_commandList->SetGraphicsRootConstantBufferView(2, matCBAddress);
         m_commandList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
     }
 }
@@ -504,6 +533,49 @@ void EnzeApp::CompileShader()
     ThrowIfFailed(D3DCompileFromFile(GetAssetFullPath(L"shaders.hlsl").c_str(), nullptr, nullptr, "PSMain", "ps_5_1", compileFlags, 0, &m_pixelShader, nullptr));
 }
 
+
+
+void EnzeApp::BuildMaterials()
+{
+
+    auto bricks0 = std::make_unique<Material>();
+	bricks0->Name = "bricks0";
+	bricks0->MatCBIndex = 0;
+	bricks0->DiffuseSrvHeapIndex = 0;
+	bricks0->DiffuseAlbedo = XMFLOAT4(Colors::ForestGreen);
+	bricks0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	bricks0->Roughness = 0.1f;
+
+	auto stone0 = std::make_unique<Material>();
+	stone0->Name = "stone0";
+	stone0->MatCBIndex = 1;
+	stone0->DiffuseSrvHeapIndex = 1;
+	stone0->DiffuseAlbedo = XMFLOAT4(Colors::LightSteelBlue);
+	stone0->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+	stone0->Roughness = 0.3f;
+ 
+	auto tile0 = std::make_unique<Material>();
+	tile0->Name = "tile0";
+	tile0->MatCBIndex = 2;
+	tile0->DiffuseSrvHeapIndex = 2;
+	tile0->DiffuseAlbedo = XMFLOAT4(Colors::LightGray);
+	tile0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	tile0->Roughness = 0.2f;
+
+	auto skullMat = std::make_unique<Material>();
+	skullMat->Name = "skullMat";
+	skullMat->MatCBIndex = 3;
+	skullMat->DiffuseSrvHeapIndex = 3;
+	skullMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	skullMat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05);
+	skullMat->Roughness = 0.3f;
+	
+	m_Materials["bricks0"] = std::move(bricks0);
+	m_Materials["stone0"] = std::move(stone0);
+	m_Materials["tile0"] = std::move(tile0);
+	m_Materials["skullMat"] = std::move(skullMat);
+}
+
 void EnzeApp::BuildCommonGeoMetry()
 {
     GeometryGenerator geoGen;
@@ -568,26 +640,26 @@ void EnzeApp::BuildCommonGeoMetry()
 	UINT k = 0;
 	for(size_t i = 0; i < box.Vertices.size(); ++i, ++k)
 	{
-		vertices[k].pos = box.Vertices[i].Position;
-        vertices[k].col = XMFLOAT4(DirectX::Colors::DarkGreen);
+		vertices[k].Pos = box.Vertices[i].Position;
+        vertices[k].Normal = box.Vertices[i].Normal;
 	}
 
 	for(size_t i = 0; i < grid.Vertices.size(); ++i, ++k)
 	{
-		vertices[k].pos = grid.Vertices[i].Position;
-        vertices[k].col = XMFLOAT4(DirectX::Colors::Blue);
+		vertices[k].Pos = grid.Vertices[i].Position;
+        vertices[k].Normal = grid.Vertices[i].Normal;
 	}
 
 	for(size_t i = 0; i < sphere.Vertices.size(); ++i, ++k)
 	{
-		vertices[k].pos = sphere.Vertices[i].Position;
-        vertices[k].col = XMFLOAT4(DirectX::Colors::Crimson);
+		vertices[k].Pos = sphere.Vertices[i].Position;
+        vertices[k].Normal = sphere.Vertices[i].Normal;
 	}
 
 	for(size_t i = 0; i < cylinder.Vertices.size(); ++i, ++k)
 	{
-		vertices[k].pos = cylinder.Vertices[i].Position;
-		vertices[k].col = XMFLOAT4(DirectX::Colors::SteelBlue);
+		vertices[k].Pos = cylinder.Vertices[i].Position;
+		vertices[k].Normal = cylinder.Vertices[i].Normal;
 	}
 
 	std::vector<std::uint16_t> indices;
@@ -601,12 +673,6 @@ void EnzeApp::BuildCommonGeoMetry()
 
 	auto geo = std::make_unique<MeshGeometry>();
 	geo->Name = "shapeGeo";
-
-	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
 
 	d3dUtil::CreateDefaultBuffer(m_device.Get(),
 	m_commandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader, geo->VertexBufferGPU);
@@ -633,7 +699,8 @@ void EnzeApp::BuildRenderItems()
     XMStoreFloat4x4(&boxRitem->World, XMMatrixScaling(2.0f, 2.0f, 2.0f)*XMMatrixTranslation(0.0f, 0.5f, 0.0f));
     boxRitem->ObjCBIndex = 0;
 	boxRitem->Geo = m_Geometries["shapeGeo"].get();
-	boxRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	boxRitem->Mat = m_Materials["stone0"].get();
+    boxRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
 	boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
 	boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
@@ -643,7 +710,8 @@ void EnzeApp::BuildRenderItems()
     gridRitem->World = MathHelper::Identity4X4();
 	gridRitem->ObjCBIndex = 1;
 	gridRitem->Geo = m_Geometries["shapeGeo"].get();
-	gridRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	gridRitem->Mat = m_Materials["tile0"].get();
+    gridRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     gridRitem->IndexCount = gridRitem->Geo->DrawArgs["grid"].IndexCount;
     gridRitem->StartIndexLocation = gridRitem->Geo->DrawArgs["grid"].StartIndexLocation;
     gridRitem->BaseVertexLocation = gridRitem->Geo->DrawArgs["grid"].BaseVertexLocation;
@@ -653,7 +721,8 @@ void EnzeApp::BuildRenderItems()
     XMStoreFloat4x4(&boxRitem1->World, XMMatrixScaling(2.0f, 2.0f, 2.0f)*XMMatrixTranslation(0.0f, 0.5f, 3.f));
     boxRitem1->ObjCBIndex = 2;
 	boxRitem1->Geo = m_Geometries["shapeGeo"].get();
-	boxRitem1->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	boxRitem1->Mat = m_Materials["bricks0"].get();
+    boxRitem1->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	boxRitem1->IndexCount = boxRitem1->Geo->DrawArgs["box"].IndexCount;
 	boxRitem1->StartIndexLocation = boxRitem1->Geo->DrawArgs["box"].StartIndexLocation;
 	boxRitem1->BaseVertexLocation = boxRitem1->Geo->DrawArgs["box"].BaseVertexLocation;
