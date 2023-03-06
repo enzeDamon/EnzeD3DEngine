@@ -38,9 +38,12 @@ public:
     virtual void OnMouseMove(WPARAM btnState, int x, int y);
 private:
     POINT m_LastMousePos;
+    XMFLOAT3 m_EyePos = { 0.0f, 0.0f, 0.0f };
     XMFLOAT4X4 m_World = MathHelper::Identity4X4();
     XMFLOAT4X4 m_View = MathHelper::Identity4X4();
     XMFLOAT4X4 m_Proj = MathHelper::Identity4X4();
+    float m_NearZ = 1.f;
+    float m_FarZ = 1000.f;
     float m_Theta = 1.5f * XM_PI;
     float m_Phi = XM_PIDIV4;
     float m_Radius = 5.0f;
@@ -126,5 +129,7 @@ private:
     void BuildBoxGeometry();
     void UpdateObjectConstants();
     void UpdateMainPass(); 
+    void UpdateCamera();
+    void InitProjMatrix();
     
 };

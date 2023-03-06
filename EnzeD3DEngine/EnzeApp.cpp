@@ -41,6 +41,8 @@ void EnzeApp::OnInit()
     // Create the vertex buffer.
 
     BuildBoxGeometry();
+    // usually projection matrix is only revised once in one game
+    InitProjMatrix();
     BuildPSO();
     
     ThrowIfFailed(m_commandList->Close());
@@ -283,27 +285,12 @@ void EnzeApp::BuildRootSignature()
 void EnzeApp::OnUpdate()
 {
     // Convert Spherical to Cartesian coordinates.
-    float x = m_Radius*sinf(m_Phi)*cosf(m_Theta);
-    float z = m_Radius*sinf(m_Phi)*sinf(m_Theta);
-    float y = m_Radius*cosf(m_Phi);
+    UpdateCamera();
 
-    // Build the view matrix.
-    XMVECTOR pos = XMVectorSet(x, y, z, 1.0f);
-    XMVECTOR target = XMVectorZero();
-    XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-
-    XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
-    XMStoreFloat4x4(&m_View, view);
-
-    XMMATRIX world = XMLoadFloat4x4(&m_World);
-    XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f * XM_PI, (float)m_width/(float)m_height, 1.f, 1000.0f);
-    XMMATRIX proj = XMLoadFloat4x4(&m_Proj);
-    XMMATRIX worldViewProj = world*view*P;
+    UpdateObjectConstants();
+    UpdateMainPass();
 
 	// Update the constant buffer with the latest worldViewProj matrix.
-	ObjectConstants objConstants;
-    XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(worldViewProj));
-    m_objectCB->CopyData(0, objConstants);
 }
 
 // Render the scene.
@@ -356,7 +343,7 @@ void EnzeApp::PopulateCommandList()
     CD3DX12_CPU_DESCRIPTOR_HANDLE depthStencilHandle(m_depthStencilHeap->GetCPUDescriptorHandleForHeapStart());
     m_commandList->ClearDepthStencilView(depthStencilHandle, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
     m_commandList->OMSetRenderTargets(1, &rtvHandle, true, &depthStencilHandle);
-    
+
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
     // 把world matrix 先扔进去
     m_commandList->SetGraphicsRootConstantBufferView(0, m_objectCB->Resource()->GetGPUVirtualAddress());
@@ -543,5 +530,47 @@ void EnzeApp::UpdateObjectConstants()
 
 void EnzeApp::UpdateMainPass()
 {
+    PassConstants tempPassCB;
+    XMMATRIX view = XMLoadFloat4x4(&m_View);
+	XMMATRIX proj = XMLoadFloat4x4(&m_Proj);
 
+	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
+	XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
+    XMStoreFloat4x4(&tempPassCB.ViewMatrix, XMMatrixTranspose(view));
+	XMStoreFloat4x4(&tempPassCB.InvView, XMMatrixTranspose(invView));
+	XMStoreFloat4x4(&tempPassCB.ProjMatrix, XMMatrixTranspose(proj));
+	XMStoreFloat4x4(&tempPassCB.InvProj, XMMatrixTranspose(invProj));
+	XMStoreFloat4x4(&tempPassCB.ViewProj, XMMatrixTranspose(viewProj));
+	XMStoreFloat4x4(&tempPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+    tempPassCB.EyePosW = m_EyePos;
+    tempPassCB.NearZ = m_NearZ;
+    tempPassCB.FarZ = m_FarZ;
+    tempPassCB.Time = myTimer.Peek();
+    
+    m_passCB->CopyData(0, tempPassCB);
+
+}
+
+void EnzeApp::UpdateCamera()
+{
+	// Convert Spherical to Cartesian coordinates.
+	m_EyePos.x = m_Radius*sinf(m_Phi)*cosf(m_Theta);
+	m_EyePos.z = m_Radius*sinf(m_Phi)*sinf(m_Theta);
+	m_EyePos.y = m_Radius*cosf(m_Phi);
+
+	// Build the view matrix.
+	XMVECTOR pos = XMVectorSet(m_EyePos.x, m_EyePos.y, m_EyePos.z, 1.0f);
+	XMVECTOR target = XMVectorZero();
+	XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+	XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
+	XMStoreFloat4x4(&m_View, view);
+}
+
+void EnzeApp::InitProjMatrix()
+{
+    
+    XMStoreFloat4x4(&m_Proj, XMMatrixPerspectiveFovLH(0.25f * XM_PI, (float)m_width/(float)m_height, m_NearZ, m_FarZ));
 }

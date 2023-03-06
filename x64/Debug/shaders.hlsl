@@ -38,8 +38,8 @@ struct PSInput
 PSInput VSMain(float3 position : POSITION, float4 color : COLOR)
 {
     PSInput result;
-
-    result.position = mul(float4(position, 1.0f), gWorldViewProj);
+    float4 tempPosition = mul(float4(position, 1.0f), ViewProj);
+    result.position = mul(tempPosition, gWorldViewProj);
     result.color = color;
 
     return result;
