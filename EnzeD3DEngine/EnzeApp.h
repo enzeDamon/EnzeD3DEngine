@@ -39,7 +39,6 @@ public:
 private:
     POINT m_LastMousePos;
     XMFLOAT3 m_EyePos = { 0.0f, 0.0f, 0.0f };
-    XMFLOAT4X4 m_World = MathHelper::Identity4X4();
     XMFLOAT4X4 m_View = MathHelper::Identity4X4();
     XMFLOAT4X4 m_Proj = MathHelper::Identity4X4();
     float m_NearZ = 1.f;
@@ -160,5 +159,5 @@ struct RenderItem
     void InitProjMatrix();
     void BuildCommonGeoMetry();
     void BuildRenderItems();
-    void RenderGroupItems(ID3D12GraphicsCommandList* cmdList);
+    void RenderGroupItems();
 };

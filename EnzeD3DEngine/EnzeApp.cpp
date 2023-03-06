@@ -291,10 +291,14 @@ void EnzeApp::BuildRootSignature()
 
 void EnzeApp::UpdateObjectConstants() 
 {
-    XMMATRIX world = XMLoadFloat4x4(&m_World);
-    ObjectConstants objConstant;
-	XMStoreFloat4x4(&objConstant.World, XMMatrixTranspose(world));
-    m_objectCB->CopyData(0, objConstant);
+    for(auto &e: mAllRitems)
+    {
+        XMMATRIX world = XMLoadFloat4x4(&e->World);
+        ObjectConstants objConstant;
+        XMStoreFloat4x4(&objConstant.World, XMMatrixTranspose(world));
+        m_objectCB->CopyData(e->ObjCBIndex, objConstant);
+    }
+    
 
 }
 
@@ -405,7 +409,7 @@ void EnzeApp::PopulateCommandList()
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
     // 把world matrix 先扔进去
     m_commandList->SetGraphicsRootConstantBufferView(1, m_passCB->Resource()->GetGPUVirtualAddress());
-    RenderGroupItems(m_commandList.Get());
+    RenderGroupItems();
 
     // Indicate that the back buffer will now be used to present.
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
@@ -528,7 +532,7 @@ void EnzeApp::BuildCommonGeoMetry()
 	for(size_t i = 0; i < grid.Vertices.size(); ++i, ++k)
 	{
 		vertices[k].pos = grid.Vertices[i].Position;
-        vertices[k].col = XMFLOAT4(DirectX::Colors::ForestGreen);
+        vertices[k].col = XMFLOAT4(DirectX::Colors::Blue);
 	}
 
 	for(size_t i = 0; i < sphere.Vertices.size(); ++i, ++k)
@@ -615,19 +619,19 @@ void EnzeApp::BuildRenderItems()
         mOpaqueRitems.push_back(e.get());
 }   
 
-void EnzeApp::RenderGroupItems(ID3D12GraphicsCommandList* cmdList) 
+void EnzeApp::RenderGroupItems() 
 {
     UINT objCBBytesSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
     for(size_t i = 0; i < mOpaqueRitems.size(); i++) {
         auto ri = mOpaqueRitems[i];
-        cmdList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
-        cmdList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
+        m_commandList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
+        m_commandList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
         
-        cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+        m_commandList->IASetPrimitiveTopology(ri->PrimitiveType);
         D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = m_objectCB->Resource()->GetGPUVirtualAddress();
         objCBAddress += ri->ObjCBIndex * objCBBytesSize;
-        cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
-        cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+        m_commandList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+        m_commandList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
     }
 }
 
