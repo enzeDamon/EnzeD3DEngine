@@ -138,6 +138,7 @@
     <ClInclude Include="DXSample.h" />
     <ClInclude Include="DXSampleHelper.h" />
     <ClInclude Include="EnzeApp.h" />
+    <ClInclude Include="FrameResource.h" />
     <ClInclude Include="GeometryGenerator.h" />
     <ClInclude Include="MathHelper.h" />
     <ClInclude Include="MyTimer.h" />
@@ -149,6 +150,7 @@
     <ClCompile Include="d3dUtil.cpp" />
     <ClCompile Include="DXSample.cpp" />
     <ClCompile Include="EnzeApp.cpp" />
+    <ClCompile Include="FrameResource.cpp" />
     <ClCompile Include="GeometryGenerator.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="MathHelper.cpp" />

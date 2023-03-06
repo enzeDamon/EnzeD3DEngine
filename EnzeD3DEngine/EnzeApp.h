@@ -13,7 +13,7 @@
 
 #include "DXSample.h"
 #include "MathHelper.h"
-#include "UploadBuffer.h"
+#include "FrameResource.h"
 
 using namespace DirectX;
 
@@ -23,6 +23,38 @@ using namespace DirectX;
 // referenced by the GPU.
 // An example of this can be found in the class method: OnDestroy().
 using Microsoft::WRL::ComPtr;
+
+// 3 frames  cpu to calculate
+const int gNumFrameResources = 3;
+
+struct RenderItem
+{
+	RenderItem() = default;
+
+    // World matrix of the shape that describes the object's local space
+    // relative to the world space, which defines the position, orientation,
+    // and scale of the object in the world.
+    XMFLOAT4X4 World = MathHelper::Identity4X4();
+
+	// Dirty flag indicating the object data has changed and we need to update the constant buffer.
+	// Because we have an object cbuffer for each FrameResource, we have to apply the
+	// update to each FrameResource.  Thus, when we modify obect data we should set 
+	// NumFramesDirty = gNumFrameResources so that each frame resource gets the update.
+
+	// Index into GPU constant buffer corresponding to the ObjectCB for this render item.
+	UINT ObjCBIndex = -1;
+
+    int NumFramesDirty = gNumFrameResources;
+	MeshGeometry* Geo = nullptr;
+
+    // Primitive topology.
+    D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+    // DrawIndexedInstanced parameters.
+    UINT IndexCount = 0;
+    UINT StartIndexLocation = 0;
+    int BaseVertexLocation = 0;
+};
 
 class EnzeApp : public DXSample
 {
@@ -48,60 +80,10 @@ private:
     float m_Radius = 5.0f;
     
     static const UINT FrameCount = 2;
-    struct Vertex {
-        XMFLOAT3 pos;
-        XMFLOAT4 col;
-    };
+
 
 //  让 render 和 geometry进行分离。因为有些物体其实
 // 形状是一样的，可以通过更改其objectcb来进行更改
-struct RenderItem
-{
-	RenderItem() = default;
-
-    // World matrix of the shape that describes the object's local space
-    // relative to the world space, which defines the position, orientation,
-    // and scale of the object in the world.
-    XMFLOAT4X4 World = MathHelper::Identity4X4();
-
-	// Dirty flag indicating the object data has changed and we need to update the constant buffer.
-	// Because we have an object cbuffer for each FrameResource, we have to apply the
-	// update to each FrameResource.  Thus, when we modify obect data we should set 
-	// NumFramesDirty = gNumFrameResources so that each frame resource gets the update.
-
-	// Index into GPU constant buffer corresponding to the ObjectCB for this render item.
-	UINT ObjCBIndex = -1;
-
-	MeshGeometry* Geo = nullptr;
-
-    // Primitive topology.
-    D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-
-    // DrawIndexedInstanced parameters.
-    UINT IndexCount = 0;
-    UINT StartIndexLocation = 0;
-    int BaseVertexLocation = 0;
-};
-
-    // each object has different world matrix
-    struct ObjectConstants {
-        
-        XMFLOAT4X4 World = MathHelper::Identity4X4();
-        
-    };
-
-    struct PassConstants {
-        XMFLOAT4X4 ViewMatrix = MathHelper::Identity4X4();
-        XMFLOAT4X4 InvView = MathHelper::Identity4X4();
-        XMFLOAT4X4 ProjMatrix = MathHelper::Identity4X4();
-        XMFLOAT4X4 InvProj = MathHelper::Identity4X4();
-        XMFLOAT4X4 ViewProj = MathHelper::Identity4X4();
-        XMFLOAT4X4 InvViewProj = MathHelper::Identity4X4();
-        XMFLOAT3 EyePosW = {0.f, 0.f, 0.f};
-        float NearZ = 0.f;
-        float FarZ = 0.f;
-        float Time = 0.f; 
-    };
 
     // Pipeline objects.
     CD3DX12_VIEWPORT m_viewport;
@@ -126,9 +108,8 @@ struct RenderItem
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> m_Geometries;
     std::vector<std::unique_ptr<RenderItem>> mAllRitems; 
     std::vector<RenderItem *>mOpaqueRitems;
+
     // get the upload pointer ready
-    std::unique_ptr<UploadBuffer<ObjectConstants>> m_objectCB = nullptr;
-    std::unique_ptr<UploadBuffer<PassConstants>> m_passCB = nullptr;
     std::vector<D3D12_INPUT_ELEMENT_DESC> m_inputElementDescs;
     ComPtr<ID3DBlob> m_vertexShader;
     ComPtr<ID3DBlob> m_pixelShader;
@@ -139,13 +120,16 @@ struct RenderItem
     HANDLE m_fenceEvent;
     ComPtr<ID3D12Fence> m_fence;
     UINT64 m_fenceValue;
+    // frames to use
+    std::vector<std::unique_ptr<FrameResource>> mFrameResources;
+    FrameResource* mCurrFrameResource = nullptr;
+    int mCurrFrameResourceIndex = 0;
 
     void BuildRootSignature();
     void CreateSwapChainAndCommandThing();
     void CreateDescHeaps();
     void CreateRtvResources();
     void CreateDepthResources();
-    void CreateConstantBuffer();
     void LoadAssets();
     void PopulateCommandList();
     void WaitForPreviousFrame();
@@ -159,5 +143,6 @@ struct RenderItem
     void InitProjMatrix();
     void BuildCommonGeoMetry();
     void BuildRenderItems();
+    void BuildFrameResources();
     void RenderGroupItems();
 };

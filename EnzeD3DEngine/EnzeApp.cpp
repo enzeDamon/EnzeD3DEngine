@@ -14,6 +14,7 @@
 #include <iostream>
 #include "GeometryGenerator.h"
 
+
 EnzeApp::EnzeApp(UINT width, UINT height, std::wstring name) :
     DXSample(width, height, name),
     m_frameIndex(0),
@@ -43,7 +44,7 @@ void EnzeApp::OnInit()
 
     BuildCommonGeoMetry();
     BuildRenderItems();
-    CreateConstantBuffer();
+    BuildFrameResources();
     // usually projection matrix is only revised once in one game
     InitProjMatrix();
     BuildPSO();
@@ -222,18 +223,22 @@ void EnzeApp::CreateDepthResources()
 		D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_DEPTH_WRITE));
 }
 
-void EnzeApp::CreateConstantBuffer()
-{
-    m_objectCB = std::make_unique<UploadBuffer<ObjectConstants>>(m_device.Get(), mAllRitems.size(), true);
-    m_passCB = std::make_unique<UploadBuffer<PassConstants>>(m_device.Get(), 1, true);
-    
-}
 
 void EnzeApp::InitProjMatrix()
 {
     
     XMStoreFloat4x4(&m_Proj, XMMatrixPerspectiveFovLH(0.25f * XM_PI, (float)m_width/(float)m_height, m_NearZ, m_FarZ));
 }
+
+void EnzeApp::BuildFrameResources()
+{
+    for(int i = 0; i < gNumFrameResources; ++i)
+        {
+            mFrameResources.push_back(std::make_unique<FrameResource>(m_device.Get(),
+                1, (UINT)mAllRitems.size()));
+        }
+}
+
 
 void EnzeApp::BuildPSO()
 {
@@ -291,12 +296,16 @@ void EnzeApp::BuildRootSignature()
 
 void EnzeApp::UpdateObjectConstants() 
 {
+    auto currObjectCB = mCurrFrameResource->ObjectCB.get();
     for(auto &e: mAllRitems)
     {
-        XMMATRIX world = XMLoadFloat4x4(&e->World);
-        ObjectConstants objConstant;
-        XMStoreFloat4x4(&objConstant.World, XMMatrixTranspose(world));
-        m_objectCB->CopyData(e->ObjCBIndex, objConstant);
+        if(e->NumFramesDirty > 0) {
+            XMMATRIX world = XMLoadFloat4x4(&e->World);
+            ObjectConstants objConstant;
+            XMStoreFloat4x4(&objConstant.World, XMMatrixTranspose(world));
+            currObjectCB->CopyData(e->ObjCBIndex, objConstant);
+            e->NumFramesDirty --;
+        }
     }
     
 
@@ -322,8 +331,8 @@ void EnzeApp::UpdateMainPass()
     tempPassCB.NearZ = m_NearZ;
     tempPassCB.FarZ = m_FarZ;
     tempPassCB.Time = myTimer.Peek();
-    
-    m_passCB->CopyData(0, tempPassCB);
+    auto currPassCB = mCurrFrameResource->PassCB.get();
+    currPassCB->CopyData(0, tempPassCB);
 
 }
 
@@ -348,7 +357,14 @@ void EnzeApp::OnUpdate()
 {
     // Convert Spherical to Cartesian coordinates.
     UpdateCamera();
-
+    mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
+    mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
+    if (mCurrFrameResource->Fence != 0 &&
+     m_fence->GetCompletedValue() < mCurrFrameResource->Fence)
+    {
+        ThrowIfFailed(m_fence->SetEventOnCompletion(mCurrFrameResource->Fence, m_fenceEvent));
+        WaitForSingleObject(m_fenceEvent, INFINITE);
+    }
     UpdateObjectConstants();
     UpdateMainPass();
 
@@ -367,8 +383,9 @@ void EnzeApp::OnRender()
 
     // Present the frame.
     ThrowIfFailed(m_swapChain->Present(1, 0));
+    mCurrFrameResource->Fence = ++m_fenceValue;
+    m_commandQueue->Signal(m_fence.Get(), m_fenceValue);
 
-    WaitForPreviousFrame();
 }
 
 void EnzeApp::OnDestroy()
@@ -385,12 +402,13 @@ void EnzeApp::PopulateCommandList()
     // Command list allocators can only be reset when the associated 
     // command lists have finished execution on the GPU; apps should use 
     // fences to determine GPU execution progress.
-    ThrowIfFailed(m_commandAllocator->Reset());
+    auto cmdListAlloc = mCurrFrameResource->CmdListAlloc;
+    ThrowIfFailed(cmdListAlloc->Reset());
 
     // However, when ExecuteCommandList() is called on a particular command 
     // list, that command list can then be reset at any time and must be before 
     // re-recording.
-    ThrowIfFailed(m_commandList->Reset(m_commandAllocator.Get(), m_pipelineState.Get()));
+    ThrowIfFailed(m_commandList->Reset(cmdListAlloc.Get(), m_pipelineState.Get()));
 
     // Set necessary state.
     m_commandList->RSSetViewports(1, &m_viewport);
@@ -408,7 +426,8 @@ void EnzeApp::PopulateCommandList()
 
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
     // 把world matrix 先扔进去
-    m_commandList->SetGraphicsRootConstantBufferView(1, m_passCB->Resource()->GetGPUVirtualAddress());
+    auto passCB = mCurrFrameResource->PassCB->Resource();
+    m_commandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
     RenderGroupItems();
 
     // Indicate that the back buffer will now be used to present.
@@ -622,13 +641,16 @@ void EnzeApp::BuildRenderItems()
 void EnzeApp::RenderGroupItems() 
 {
     UINT objCBBytesSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+
     for(size_t i = 0; i < mOpaqueRitems.size(); i++) {
         auto ri = mOpaqueRitems[i];
         m_commandList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
         m_commandList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
         
         m_commandList->IASetPrimitiveTopology(ri->PrimitiveType);
-        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = m_objectCB->Resource()->GetGPUVirtualAddress();
+        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress();
         objCBAddress += ri->ObjCBIndex * objCBBytesSize;
         m_commandList->SetGraphicsRootConstantBufferView(0, objCBAddress);
         m_commandList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
