@@ -383,6 +383,7 @@ void EnzeApp::OnRender()
 
     // Present the frame.
     ThrowIfFailed(m_swapChain->Present(1, 0));
+    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
     mCurrFrameResource->Fence = ++m_fenceValue;
     m_commandQueue->Signal(m_fence.Get(), m_fenceValue);
 
