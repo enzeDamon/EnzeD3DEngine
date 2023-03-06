@@ -356,9 +356,7 @@ void EnzeApp::PopulateCommandList()
     CD3DX12_CPU_DESCRIPTOR_HANDLE depthStencilHandle(m_depthStencilHeap->GetCPUDescriptorHandleForHeapStart());
     m_commandList->ClearDepthStencilView(depthStencilHandle, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
     m_commandList->OMSetRenderTargets(1, &rtvHandle, true, &depthStencilHandle);
-    // 把所有的heap扔进gpu里面
-	ID3D12DescriptorHeap* descriptorHeaps[] = { m_cbvHeap.Get() };
-	m_commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+    
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
     // 把world matrix 先扔进去
     m_commandList->SetGraphicsRootConstantBufferView(0, m_objectCB->Resource()->GetGPUVirtualAddress());
