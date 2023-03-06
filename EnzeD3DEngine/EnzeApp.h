@@ -130,7 +130,6 @@ private:
     void CreateDescHeaps();
     void CreateRtvResources();
     void CreateDepthResources();
-    void LoadAssets();
     void PopulateCommandList();
     void WaitForPreviousFrame();
     void DefineInputLayout();

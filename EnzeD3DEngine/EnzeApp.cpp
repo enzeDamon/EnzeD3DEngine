@@ -294,6 +294,55 @@ void EnzeApp::BuildRootSignature()
         IID_PPV_ARGS(m_rootSignature.GetAddressOf())));
 }
 
+
+
+// Update frame-based values.
+void EnzeApp::OnUpdate()
+{
+    // Convert Spherical to Cartesian coordinates.
+    UpdateCamera();
+    mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
+    mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
+    if (mCurrFrameResource->Fence != 0 &&
+     m_fence->GetCompletedValue() < mCurrFrameResource->Fence)
+    {
+        ThrowIfFailed(m_fence->SetEventOnCompletion(mCurrFrameResource->Fence, m_fenceEvent));
+        WaitForSingleObject(m_fenceEvent, INFINITE);
+    }
+    UpdateObjectConstants();
+    UpdateMainPass();
+
+	// Update the constant buffer with the latest worldViewProj matrix.
+}
+
+// Render the scene.
+void EnzeApp::OnRender()
+{
+    // Record all the commands we need to render the scene into the command list.
+    PopulateCommandList();
+
+    // Execute the command list.
+    ID3D12CommandList* ppCommandLists[] = { m_commandList.Get() };
+    m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+
+    // Present the frame.
+    ThrowIfFailed(m_swapChain->Present(1, 0));
+    // This must be update otherwise the swapchain 会在切换一次之后锁死直接崩掉
+    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+    mCurrFrameResource->Fence = ++m_fenceValue;
+    m_commandQueue->Signal(m_fence.Get(), m_fenceValue);
+
+}
+
+void EnzeApp::OnDestroy()
+{
+    // Ensure that the GPU is no longer referencing resources that are about to be
+    // cleaned up by the destructor.
+    WaitForPreviousFrame();
+
+    CloseHandle(m_fenceEvent);
+}
+
 void EnzeApp::UpdateObjectConstants() 
 {
     auto currObjectCB = mCurrFrameResource->ObjectCB.get();
@@ -352,50 +401,24 @@ void EnzeApp::UpdateCamera()
 	XMStoreFloat4x4(&m_View, view);
 }
 
-// Update frame-based values.
-void EnzeApp::OnUpdate()
+// to render every single object in the group.
+void EnzeApp::RenderGroupItems() 
 {
-    // Convert Spherical to Cartesian coordinates.
-    UpdateCamera();
-    mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
-    mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
-    if (mCurrFrameResource->Fence != 0 &&
-     m_fence->GetCompletedValue() < mCurrFrameResource->Fence)
-    {
-        ThrowIfFailed(m_fence->SetEventOnCompletion(mCurrFrameResource->Fence, m_fenceEvent));
-        WaitForSingleObject(m_fenceEvent, INFINITE);
+    UINT objCBBytesSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+
+    for(size_t i = 0; i < mOpaqueRitems.size(); i++) {
+        auto ri = mOpaqueRitems[i];
+        m_commandList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
+        m_commandList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
+        
+        m_commandList->IASetPrimitiveTopology(ri->PrimitiveType);
+        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress();
+        objCBAddress += ri->ObjCBIndex * objCBBytesSize;
+        m_commandList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+        m_commandList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
     }
-    UpdateObjectConstants();
-    UpdateMainPass();
-
-	// Update the constant buffer with the latest worldViewProj matrix.
-}
-
-// Render the scene.
-void EnzeApp::OnRender()
-{
-    // Record all the commands we need to render the scene into the command list.
-    PopulateCommandList();
-
-    // Execute the command list.
-    ID3D12CommandList* ppCommandLists[] = { m_commandList.Get() };
-    m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
-
-    // Present the frame.
-    ThrowIfFailed(m_swapChain->Present(1, 0));
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
-    mCurrFrameResource->Fence = ++m_fenceValue;
-    m_commandQueue->Signal(m_fence.Get(), m_fenceValue);
-
-}
-
-void EnzeApp::OnDestroy()
-{
-    // Ensure that the GPU is no longer referencing resources that are about to be
-    // cleaned up by the destructor.
-    WaitForPreviousFrame();
-
-    CloseHandle(m_fenceEvent);
 }
 
 void EnzeApp::PopulateCommandList()
@@ -639,24 +662,7 @@ void EnzeApp::BuildRenderItems()
         mOpaqueRitems.push_back(e.get());
 }   
 
-void EnzeApp::RenderGroupItems() 
-{
-    UINT objCBBytesSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-    
-    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
 
-    for(size_t i = 0; i < mOpaqueRitems.size(); i++) {
-        auto ri = mOpaqueRitems[i];
-        m_commandList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
-        m_commandList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
-        
-        m_commandList->IASetPrimitiveTopology(ri->PrimitiveType);
-        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress();
-        objCBAddress += ri->ObjCBIndex * objCBBytesSize;
-        m_commandList->SetGraphicsRootConstantBufferView(0, objCBAddress);
-        m_commandList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
-    }
-}
 
 
 void EnzeApp::OnMouseDown(WPARAM btnState, int x, int y)
