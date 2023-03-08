@@ -406,6 +406,14 @@ void EnzeApp::UpdateMainPass()
     tempPassCB.NearZ = m_NearZ;
     tempPassCB.FarZ = m_FarZ;
     tempPassCB.Time = myTimer.Peek();
+    tempPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+	tempPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
+	tempPassCB.Lights[0].Strength = { 0.6f, 0.6f, 0.6f };
+	tempPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
+	tempPassCB.Lights[1].Strength = { 0.3f, 0.3f, 0.3f };
+
+	tempPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
+	tempPassCB.Lights[2].Strength = { 0.15f, 0.15f, 0.15f };
     auto currPassCB = mCurrFrameResource->PassCB.get();
     currPassCB->CopyData(0, tempPassCB);
 

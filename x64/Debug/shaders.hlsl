@@ -8,7 +8,24 @@
 // PURPOSE, MERCHANTABILITY, OR NON-INFRINGEMENT.
 //
 //*********************************************************
+// off and end is used to calculate attenuation
+#define MAXLIGHTNUM (6)
+struct Light
+{
+ float3 Strength;
+    float FalloffStart; // point/spot light only
+    float3 Direction;   // directional/spot light only
+    float FalloffEnd;   // point/spot light only
+    float3 Position;    // point light only
+    float SpotPower;    // spot light only
+};
+struct Material
+{
+    float4 DiffuseAlbedo;
+    float3 FresnelR0;
+    float Shininess;
 
+};
 cbuffer cbPerObject : register(b0)
 {
 	float4x4 WorldMatrix; 
@@ -26,6 +43,16 @@ cbuffer cbPerPass : register(b1)
         float NearZ;
         float FarZ;
         float Time; 
+        float4 AmbientLight;
+        Light Lights[MAXLIGHTNUM];
+};
+
+cbuffer cbPerMaterial: register(b2)
+{
+    float4 DiffuseAlbedo;
+    float3 FresnelR0;
+    float Roughness;
+    float4x4 MatTransform;
 };
 
 struct PSInput
@@ -50,5 +77,12 @@ PSInput VSMain(float3 position : POSITION, float3 normal : NORMAL)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
+    //线性插值可能让其大于1
+    float3 NormalW = normalize(input.normal);
+    float3 toEye = normalize(EyePosW - input.positionWorld);
+    // Blinn-Phong 模型分为三部分，先把环境光部分搞定
+    // 这里用位乘法, 这里games101其实用的是另外一种算法，
+    // 用的另外的ka
+    float4 ambient = AmbientLight * DiffuseAlbedo;
     return float4(input.normal, 1.0f);
 }
