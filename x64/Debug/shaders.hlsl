@@ -11,7 +11,7 @@
 
 cbuffer cbPerObject : register(b0)
 {
-	float4x4 gWorldViewProj; 
+	float4x4 WorldMatrix; 
 };
 
 cbuffer cbPerPass : register(b1)
@@ -31,23 +31,24 @@ cbuffer cbPerPass : register(b1)
 struct PSInput
 {
     float4 position : SV_POSITION;
-    float4 color : COLOR;
+    float3 normal : NORMAL;
+    float3 positionWorld: POSITION;
     
 };
 
 // 由于HLSL 是列向量乘法，所以vector都是在前的。同时也是为什么要先乘世界矩阵
 // 再处理投影矩阵的原因
-PSInput VSMain(float3 position : POSITION, float4 color : COLOR)
+PSInput VSMain(float3 position : POSITION, float3 normal : NORMAL)
 {
     PSInput result;
-    float4 tempPosition = mul(float4(position, 1.0f), gWorldViewProj);
+    float4 tempPosition = mul(float4(position, 1.0f), WorldMatrix);
     result.position = mul(tempPosition, ViewProj);
-    result.color = color;
-
+    result.normal = normal;
+    result.positionWorld = tempPosition.xyz;
     return result;
 }
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    return input.color;
+    return float4(input.normal, 1.0f);
 }
