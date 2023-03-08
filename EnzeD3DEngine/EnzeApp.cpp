@@ -312,6 +312,7 @@ void EnzeApp::OnUpdate()
     }
     UpdateObjectConstants();
     UpdateMainPass();
+    UpdateMaterialsCB();
 
 	// Update the constant buffer with the latest worldViewProj matrix.
 }
@@ -408,7 +409,8 @@ void EnzeApp::UpdateMainPass()
     tempPassCB.Time = myTimer.Peek();
     tempPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
 	tempPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
-	tempPassCB.Lights[0].Strength = { 0.6f, 0.6f, 0.6f };
+	// tempPassCB.Lights[0].Direction = { 1.f, 0.f, 0.f };
+    tempPassCB.Lights[0].Strength = { 0.6f, 0.6f, 0.6f };
 	tempPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
 	tempPassCB.Lights[1].Strength = { 0.3f, 0.3f, 0.3f };
 

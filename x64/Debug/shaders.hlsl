@@ -9,10 +9,13 @@
 //
 //*********************************************************
 // off and end is used to calculate attenuation
-#define MAXLIGHTNUM (6)
+#define MAXLIGHTNUM (16)
+#ifndef NUM_DIR_LIGHTS
+    #define NUM_DIR_LIGHTS 2
+#endif
 struct Light
 {
- float3 Strength;
+    float3 Strength;
     float FalloffStart; // point/spot light only
     float3 Direction;   // directional/spot light only
     float FalloffEnd;   // point/spot light only
@@ -43,6 +46,9 @@ cbuffer cbPerPass : register(b1)
         float NearZ;
         float FarZ;
         float Time; 
+        // 两个对齐位
+        float pad_0;
+        float pad_1;
         float4 AmbientLight;
         Light Lights[MAXLIGHTNUM];
 };
@@ -74,6 +80,20 @@ PSInput VSMain(float3 position : POSITION, float3 normal : NORMAL)
     result.positionWorld = tempPosition.xyz;
     return result;
 }
+float4 diffusionCalCulation(Light L[MAXLIGHTNUM], float4 diffuseAlbedo, float3 normal)
+{
+    float3 result = 0.f ;
+
+    for(int i = 0; i < NUM_DIR_LIGHTS; ++i) {
+        //  因为都以该平面的法线为主
+        float3 light_dir = - L[i].Direction;
+        float3 strength = L[i].Strength;
+        // 投影下来的光照强度
+        result += strength * max(dot(light_dir, normal), 0.f) * diffuseAlbedo.xyz;
+    }
+    return float4(result, 0.f);
+
+}
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
@@ -84,5 +104,9 @@ float4 PSMain(PSInput input) : SV_TARGET
     // 这里用位乘法, 这里games101其实用的是另外一种算法，
     // 用的另外的ka
     float4 ambient = AmbientLight * DiffuseAlbedo;
-    return float4(input.normal, 1.0f);
+    // 下面来计算diffusion
+    float4 diffusion = diffusionCalCulation(Lights, DiffuseAlbedo, NormalW);
+    float3 result = ambient.xyz + diffusion.xyz;
+    // return DiffuseAlbedo;
+    return float4(diffusion.xyz, DiffuseAlbedo.a);
 }

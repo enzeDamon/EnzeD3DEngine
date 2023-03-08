@@ -20,6 +20,8 @@ struct PassConstants {
     float NearZ = 0.f;
     float FarZ = 0.f;
     float Time = 0.f; 
+    float pad_0;
+    float pad_1;
     DirectX::XMFLOAT4 AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
     Light Lights[MaxLights];
 };
