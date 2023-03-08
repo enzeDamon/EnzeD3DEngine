@@ -11,7 +11,7 @@
 // off and end is used to calculate attenuation
 #define MAXLIGHTNUM (16)
 #ifndef NUM_DIR_LIGHTS
-    #define NUM_DIR_LIGHTS 2
+    #define NUM_DIR_LIGHTS 3
 #endif
 struct Light
 {
@@ -80,6 +80,7 @@ PSInput VSMain(float3 position : POSITION, float3 normal : NORMAL)
     result.positionWorld = tempPosition.xyz;
     return result;
 }
+
 float4 diffusionCalCulation(Light L[MAXLIGHTNUM], float4 diffuseAlbedo, float3 normal)
 {
     float3 result = 0.f ;
@@ -95,6 +96,34 @@ float4 diffusionCalCulation(Light L[MAXLIGHTNUM], float4 diffuseAlbedo, float3 n
 
 }
 
+float3 SchlickFresnel(float3 R0, float3 normal, float3 lightVec)
+{
+    float cosIncidentAngle = saturate(dot(normal, lightVec));
+
+    float f0 = 1.0f - cosIncidentAngle;
+    float3 reflectPercent = R0 + (1.0f - R0)*(f0*f0*f0*f0*f0);
+
+    return reflectPercent;
+}
+
+
+float3 reflectionCalculation(Light L[MAXLIGHTNUM], Material mat, float3 toEye, float3 normal)
+{   float m = mat.Shininess * 256.0f;
+    float3 result = 0.f;
+    for (int i = 0; i < NUM_DIR_LIGHTS; i++) {
+        float3 light_dir = -L[i].Direction;
+        float3 halfVector = normalize(normal + toEye);
+        // 乘法在GPU中比除法快，所以选择用0.125代替除以8
+        float roughnessFactor = 0.125f * (m + 8.f) * pow(max(dot(halfVector, normal), 0.f), m);
+        float3 fresnelFactor = SchlickFresnel(mat.FresnelR0, halfVector, light_dir);
+        float3 specAlbedo = fresnelFactor * roughnessFactor;
+        specAlbedo = specAlbedo / (specAlbedo + 1.f);
+        float3 light_strength = L[i].Strength * max(dot(light_dir, normal), 0.f);
+        result += specAlbedo * light_strength; 
+    }
+    return result;
+}
+
 float4 PSMain(PSInput input) : SV_TARGET
 {
     //线性插值可能让其大于1
@@ -106,7 +135,11 @@ float4 PSMain(PSInput input) : SV_TARGET
     float4 ambient = AmbientLight * DiffuseAlbedo;
     // 下面来计算diffusion
     float4 diffusion = diffusionCalCulation(Lights, DiffuseAlbedo, NormalW);
-    float3 result = ambient.xyz + diffusion.xyz;
-    // return DiffuseAlbedo;
-    return float4(diffusion.xyz, DiffuseAlbedo.a);
+    float Shininess = 1.f - Roughness;
+    Material current = { DiffuseAlbedo, FresnelR0, Shininess };
+    float3 reflection = reflectionCalculation(Lights, current, toEye, NormalW);
+    float3 result = ambient.xyz + diffusion.xyz + reflection;
+    // 下面就是开始计算 反射光，包含微表面模型了
+    
+    return float4(result, DiffuseAlbedo.a);
 }
